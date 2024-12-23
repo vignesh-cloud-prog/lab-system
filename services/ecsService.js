@@ -1,56 +1,74 @@
-const { ECSClient, ExecuteCommandCommand } = require('@aws-sdk/client-ecs');
-const WebSocket = require('ws');
-const { ecsClient } = require('../config/awsConfig');
+const { ExecuteCommandCommand } = require('@aws-sdk/client-ecs');
+const { SSMClient, StartSessionCommand } = require('@aws-sdk/client-ssm');
+const { ecsClient, ssmClient } = require('../config/awsConfig');
+
+
+async function waitForTaskRunning(taskArn, maxAttempts = 20) {
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      const describeParams = {
+        cluster: process.env.ECS_CLUSTER_NAME || 'devcluster',
+        tasks: [taskArn]
+      };
+
+      const describeResponse = await this.ecsClient.send(new DescribeTasksCommand(describeParams));
+
+      if (describeResponse.tasks[0].lastStatus === 'RUNNING') {
+        return true;
+      }
+
+      // Wait for 10 seconds before next attempt
+      await new Promise(resolve => setTimeout(resolve, 10000));
+    } catch (error) {
+      console.error('Error checking task status:', error);
+      throw error;
+    }
+  }
+
+  throw new Error('Task did not reach RUNNING state');
+}
+
 
 async function startSession(clusterName, taskId, containerName, command) {
   try {
-    const params = {
+    // Validate inputs
+    if (!clusterName || !taskId || !containerName || !command) {
+      throw new Error('Missing required parameters');
+    }
+
+
+
+    // Execute ECS command
+    const executeCommandParams = {
       cluster: clusterName,
       task: taskId,
       container: containerName,
-      command: command,
+      command: command || "/bin/bash",
       interactive: true,
     };
+    console.log('Execute Command Params:', JSON.stringify(executeCommandParams, null, 2));
 
-    const response = await ecsClient.send(new ExecuteCommandCommand(params));
+    const executeResponse = await ecsClient.send(new ExecuteCommandCommand(executeCommandParams));
 
-    console.log('ECS Execute Command Response:', response);
+    // Log the full response for debugging
+    console.log('Execute Command Response:', JSON.stringify(executeResponse, null, 2));
 
-    const { streamUrl, tokenValue } = response.session;
+    // Ensure the session target is valid
+    if (!executeResponse.session) {
+      throw new Error("Failed to initiate ECS Execute Command session.");
+    }
 
-    // Connect to the WebSocket
-    const ws = new WebSocket(streamUrl, {
-      headers: {
-        'X-Aws-Exc-Token': tokenValue,
-      },
-    });
-
-    return new Promise((resolve, reject) => {
-      let commandOutput = '';
-
-      ws.on('open', () => {
-        console.log('WebSocket connection established');
-      });
-
-      ws.on('message', (data) => {
-        
-        console.log('Message received:', data.toString());
-        commandOutput += data.toString();
-      });
-
-      ws.on('close', () => {
-        console.log('WebSocket closed');
-        resolve(commandOutput); // Return the full output after WebSocket closes
-      });
-
-      ws.on('error', (error) => {
-        console.error('WebSocket error:', error);
-        reject(error);
-      });
-    });
+    // Return session details
+    return {
+      success: true,
+      output: executeResponse.session,
+    };
   } catch (error) {
-    console.error('Error starting ECS session:', error);
-    throw error;
+    console.error('Error in ECS terminal service:', error);
+    return {
+      success: false,
+      error: error.message,
+    };
   }
 }
 
