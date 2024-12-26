@@ -77,6 +77,10 @@ io.on('connection', (socket) => {
 });
 
 const PORT = process.env.PORT || 3001;
+// Health check endpoint for Elastic Beanstalk
+app.get('/health', (req, res) => {
+  res.sendStatus(200);
+});
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
