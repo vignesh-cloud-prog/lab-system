@@ -26,6 +26,7 @@ services:
       - "443:443"
     depends_on:
       - app
+      - certbot
     networks:
       - app-network
 
@@ -35,11 +36,11 @@ services:
     volumes:
       - ./certbot/conf:/etc/letsencrypt
       - ./certbot/www:/var/www/certbot
-    command: certonly --webroot -w /var/www/certbot --force-renewal --email vigneshun80@gmail.com -d terminal-backend.vlsideepdive.com --agree-tos
+    entrypoint: >
+      sh -c "trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot && sleep 12h & wait $!; done;"
     networks:
       - app-network
 
 networks:
   app-network:
     driver: bridge
-
